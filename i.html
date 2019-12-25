@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <script src="./js/vue.js"></script>
+    <script src="./js/echarts.js"></script>
+    <link rel="stylesheet" href="./css/i.css">
+    <title>Document</title>
+</head>
+<body>
+    <div id="app">
+        <p class="title">磁盘调度算法分析系统</p>
+        <div class="box">
+            <div class="line_title">磁道</div>
+            <div class="line">
+                <div class="index" :style="{left:(index/maxIndex)*100+'%'}" :class="{index_active:loading}">
+                    <div class="index_num">{{index}}</div>
+                </div>
+            </div>
+            <div class="control_box">
+                <div class="func">
+                    <label class="func_label"><input name="func" type="radio" value="" @click="selectFunc('FCFS')" class="func_input"/>FCFS</label> 
+                    <label class="func_label"><input name="func" type="radio" value="" @click="selectFunc('SSTF')" class="func_input"/>SSTF</label class="func_label"> 
+                    <label class="func_label"><input name="func" type="radio" value="" @click="selectFunc('SCAN')" class="func_input"/>SCAN</label> 
+                    <label class="func_label"><input name="func" type="radio" value="" @click="selectFunc('CSCAN')" class="func_input"/>CSCAN</label class="func_label"> 
+                </div>
+                <div class="list">
+                    <p class="list_title">初始值：</p>
+                    <input type="text" v-model="inputIndex" class="list_input" style="width: 20%;">
+                </div>
+                <div class="list">
+                    <p class="list_title">磁盘访问序列：<span class="list_alert">（ 例如：3,56,12,24,55,15,8 ）</span></p>
+                    <div class="list_input_box">
+                        <input type="text" v-model="inputList" class="list_input">
+                        <img src="./img/random.png" alt="" class="list_random" @click="random()">
+                    </div>
+                    <div class="upload" @click="fileClick()">
+                        上传文件
+                        <input type="file" class="file" id="file" @change="fileChange"/>
+                    </div>
+                </div>
+                <div class="list" v-if="inputToActive">
+                    <p class="list_title">初始方向：</p>
+                    <label class="func_label"><input name="to" type="radio" value="" @click="selectTo(0)" class="func_input"/>向左</label> 
+                    <label class="func_label"><input name="to" type="radio" value="" @click="selectTo(1)" class="func_input"/>向右</label class="func_label">
+                </div>
+                <div class="submit" @click="init()" :class="{submit_no:loading}">
+                    {{loadingText}}
+                </div>
+            </div>
+        </div>
+        <div class="analysis_box">
+            <div id="analysis_table" class="analysis_table"></div>
+            <transition-group name="analysis_list" class="analysis_list" tag="ul">
+                <li class="analysis_item analysis_late" v-for="(item,index) in analysisList" :class="{analysis_max:item.id==analysisMax.id && !loading,analysis_up:!loading && analysisStatus==1 && index==0,analysis_down:!loading && analysisStatus==-1 && index==0}" :key="item.id">
+                    <img v-if="loading && index==0" src="./img/load.png" class="loading"/>
+                    <span v-else>{{item.func}} 平均寻道长度：{{item.long}}</span>
+                    <img class="analysis_status" src="./img/top.png" v-if="!loading && analysisStatus==1 && index==0"/>
+                    <img class="analysis_status" src="./img/down.png" v-if="!loading && analysisStatus==-1 && index==0">
+                    <img class="analysis_status" src="./img/flash.png" v-if="!loading && item.id==analysisMax.id && index!=0">
+                </li>
+            </transition-group>
+        </div>
+    </div>
+    <script>
+        let app=new Vue({
+            el:'#app',
+            data:{
+                index:0,
+                maxIndex:0,
+                inviteList:[23,56,12,24,55,15,8],
+                to:0,     //scan算法初始方向 1顺时针 0逆时针
+                grade:0,
+
+
+
+                inputIndex:0,
+                inputList:'',
+                inputListBack:'',
+                inputToActive:false,
+                loading:false,
+                loadingText:'开始',
+                func:'',
+                option:{
+                    legend: {
+                        data:['算法分析']
+                    },
+                    tooltip: {
+                        trigger: 'axis',
+                        formatter: "次数:地址<br/>{b} : {c}"
+                    },
+                    grid: {
+                        left: '3%',
+                        right: '4%',
+                        bottom: '3%',
+                        containLabel: true
+                    },
+                    xAxis: {
+                        // type: 'value',
+                    },
+                    yAxis: {
+                        type: 'category',
+                        axisLine: {onZero: true},
+                        axisLabel: {
+                            formatter: '{value}'
+                        },
+                        data: [1,2,3,4,5,6,7,8]
+                    },
+                    series: [
+                        {
+                            name: '算法分析',
+                            type: 'line',
+                            smooth: true,
+                            lineStyle: {
+                                normal: {
+                                    width: 3,
+                                    shadowColor: 'rgba(0,0,0,0.4)',
+                                    shadowBlur: 10,
+                                    shadowOffsetY: 10
+                                }
+                            },
+                            data:[0,0,0,0,0,0,0,0]
+                        }
+                    ]
+                },
+                ec:'',
+                analysisList:[
+                ],
+                analysisStatus:1,//0 1 -1 状态
+                analysisMax:{
+                    id:0,
+                    long:0,
+                }, //最快的id号
+                
+            },
+            mounted(){
+                this.ec = echarts.init(document.getElementById('analysis_table'));
+                this.ec.setOption(this.option);
+                // setTimeout(()=>{
+                //     this.analysisList.unshift({func:'SSSS',long:34.9,id:5})
+                // },2000)
+            },
+            methods: {
+                init(){
+                    if(!this.loading){
+                        if(this.inputListBack!='' && this.inputListBack!=this.inputList){
+                            this.analysisList=[];
+                            this.analysisMax={
+                                id:0,
+                                long:0
+                            }
+                            this.inputListBack=this.inputList;
+                        }else{
+                            this.inputListBack=this.inputList;
+                        }
+                        this.loading=true;
+                        this.loadingText='正在执行...';
+                        if(this.func=='SCAN' || this.func=='CSCAN'){
+                            let to=this.to==1 ? '(右)' : '(左)';
+                            this.analysisList.unshift({func:this.func+to,long:0,id:this.analysisList.length})
+                        }else{
+                            this.analysisList.unshift({func:this.func,long:0,id:this.analysisList.length})
+                        }
+                        
+                        this.inviteList=this.inputList.split(',');
+                        for(let i=0;i<this.inviteList.length;i++){
+                            this.inviteList[i]=Number(this.inviteList[i]);
+                        }
+                        this.maxIndex=Math.max(...this.inviteList);
+                        this.index=this.inputIndex;
+                        switch(this.func){
+                            case 'FCFS':
+                                this.FCFS(this.inviteList);
+                                break;
+                            case 'SSTF':
+                                this.SSTF(this.inviteList);
+                                break;
+                            case 'SCAN':
+                                this.SCAN(this.inviteList,this.to);
+                                break;
+                            case 'CSCAN':
+                                this.CSCAN(this.inviteList,this.to);
+                                break;
+                        }
+                    }
+                },
+                end(grade){
+                    grade=Number(grade.toFixed(2));
+                    this.analysisList[0].long=grade;
+                    if(grade<=this.analysisMax.long || this.analysisMax.long==0){
+                        this.analysisStatus=1;
+                        this.analysisMax={
+                            id:this.analysisList[0].id,
+                            long:grade
+                        }
+                    }else if(grade>this.analysisMax.long){
+                        this.analysisStatus=-1;
+                    }
+                    this.loadingText='执行完毕!';
+                    setTimeout(()=>{
+                        this.loading=false;
+                        this.loadingText='开始';
+                    },500)
+                },
+                createEcharts(inviteList){
+                    this.option.series[0].data=inviteList;
+                    this.option.yAxis.data=[];
+                    for(let i=0;i<inviteList.length;i++){
+                        this.option.yAxis.data.push(i+1);
+                    }
+                    this.ec.setOption(this.option);
+                },
+                fileChange(el){
+                    if(el.target.files.length!=0){
+                        let r  = new FileReader();  //创建filereader对象
+                        r.readAsText(el.target.files[0]);       //读取图片文件
+                        r.onload = (o)=>{
+                            this.inputList=o.target.result;
+                        }
+                    }
+                },
+                fileClick(){
+                    document.getElementById('file').click();
+                },
+                random(){
+                    this.inputList='';
+                    let num=10;
+                    for(let i=0;i<num;i++){
+                        if(i==num-1){
+                            this.inputList+=parseInt(Math.random()*99+1);
+                        }else{
+                            this.inputList+=(parseInt(Math.random()*99+1)+',');
+                        }
+                    }
+                },
+                selectTo(i){
+                    this.to=i;
+                },
+                selectFunc(func){
+                    this.func=func;
+                    if(func=='SCAN' || func=='CSCAN'){
+                        this.inputToActive=true;
+                    }else{
+                        this.inputToActive=false;
+                    }
+                },
+                async sleep(timeout){
+                    await new Promise(res=>{
+                        setTimeout(res,timeout);
+                    })
+                    
+                },
+                async FCFS(inviteList){
+                    let step=0;
+                    for(let i=0;i<inviteList.length;i++){
+                        await this.sleep(1000);
+                        if(i==0){
+                            step+=Math.abs(inviteList[i]-this.index)
+                        }else{
+                            step+=Math.abs(inviteList[i]-inviteList[i-1])
+                        }
+                        this.index=inviteList[i];
+                        this.createEcharts([...inviteList].splice(0,i+1));
+                        
+                    }
+                    this.end(step/inviteList.length);
+                },
+                async SSTF(inviteList){
+                    let list=[],step=0,i=0;
+                    while(inviteList.length!=0){
+                        await this.sleep(1000);
+                        inviteList.sort((a,b)=>{
+                            return Math.abs(a-this.index)-Math.abs(b-this.index);
+                        });
+                        this.index=inviteList[0];
+                        list.push(inviteList.shift());
+                        if(i==0){
+                            step+=Math.abs(list[i]-this.index)
+                        }else{
+                            step+=Math.abs(list[i]-list[i-1])
+                        }
+                        this.createEcharts(list);
+                        i+=1;
+                    }
+                    this.end(step/list.length);
+                },
+                async SCAN(inviteList,to){
+                    let l=[],r=[],step=0;
+                    inviteList.forEach(e=>{
+                        if(e<this.index){
+                            l.push(e);
+                        }else{
+                            r.push(e);
+                        }
+                    });
+                    l.sort((a,b)=>{
+                        return b-a;
+                    })
+                    r.sort((a,b)=>{
+                        return a-b;
+                    })
+                    inviteList= to==1 ? [...r,...l] : [...l,...r];
+                    for(let i=0;i<inviteList.length;i++){
+                        await this.sleep(1000);
+                        if(i==0){
+                            step+=Math.abs(inviteList[i]-this.index)
+                        }else{
+                            step+=Math.abs(inviteList[i]-inviteList[i-1])
+                        }
+                        this.index=inviteList[i];
+                        this.createEcharts([...inviteList].splice(0,i+1));
+                    }
+                    this.end(step/inviteList.length);
+                },
+                async CSCAN(inviteList,to){
+                    let l=[],r=[],step=0;
+                    inviteList.forEach(e=>{
+                        if(e<this.index){
+                            l.push(e);
+                        }else{
+                            r.push(e);
+                        }
+                    });
+                    l.sort((a,b)=>{
+                        if(to==1){
+                            return a-b;
+                        }else{
+                            return b-a;
+                        }
+                    })
+                    r.sort((a,b)=>{
+                        if(to==1){
+                            return a-b;
+                        }else{
+                            return b-a;
+                        }
+                    })
+                    inviteList= to==1 ? [...r,...l] : [...l,...r];
+                    for(let i=0;i<inviteList.length;i++){
+                        await this.sleep(1000);
+                        if(i==0){
+                            step+=Math.abs(inviteList[i]-this.index)
+                        }else{
+                            step+=Math.abs(inviteList[i]-inviteList[i-1])
+                        }
+                        this.index=inviteList[i];
+                        this.createEcharts([...inviteList].splice(0,i+1));
+                    }
+                    this.end(step/inviteList.length);
+                }
+            },
+        })
+
+        
+    </script>
+</body>
+</html>
